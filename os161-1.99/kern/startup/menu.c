@@ -179,7 +179,14 @@ cmd_prog(int nargs, char **args)
 
 	return common_prog(nargs, args);
 }
-
+static
+int
+cmd_dth(int nargs, char **args)
+{
+	dbflags=DB_THREADS; //penis
+	return 0;
+}
+	
 /*
  * Command for starting the system shell.
  */
@@ -549,6 +556,7 @@ static struct {
 	{ "q",		cmd_quit },
 	{ "exit",	cmd_quit },
 	{ "halt",	cmd_quit },
+	{ "dth",        cmd_dth },
 
 #if OPT_SYNCHPROBS
 	/* in-kernel synchronization problem(s) */
