@@ -9,6 +9,7 @@
 #include <thread.h>
 #include <addrspace.h>
 #include <copyinout.h>
+#include "opt-A1.h"
 
   /* this implementation of sys__exit does not do anything with the exit code */
   /* this needs to be fixed to get exit() and waitpid() working properly */
@@ -48,14 +49,20 @@ void sys__exit(int exitcode) {
   panic("return from thread_exit in sys_exit\n");
 }
 
+/* sysfork() system call */
+int
+sys_fork(int *retval, struct trapframe *tf) {
+  struct forkedProc = proc_create_runprogram("child");
+}
+
 
 /* stub handler for getpid() system call                */
 int
-sys_getpid(pid_t *retval)
+sys_getpid(pid_t *retval, struct trapframe *tf)
 {
   /* for now, this is just a stub that always returns a PID of 1 */
   /* you need to fix this to make it work properly */
-  *retval = 1;
+  *retval = curproc->p_pid;
   return(0);
 }
 
