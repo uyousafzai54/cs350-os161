@@ -181,7 +181,7 @@ cmd_prog(int nargs, char **args)
 }
 static
 int
-cmd_dth(int nargs, char **args)
+cmd_dth()
 {
 	dbflags=DB_THREADS; //penis
 	return 0;
@@ -398,8 +398,6 @@ cmd_kheapstats(int nargs, char **args)
 	(void)nargs;
 	(void)args;
 
-	kheap_printstats();
-	
 	return 0;
 }
 

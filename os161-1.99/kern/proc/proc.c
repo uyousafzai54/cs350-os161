@@ -204,13 +204,13 @@ proc_bootstrap(void)
   if (kproc == NULL) {
     panic("proc_create for kproc failed\n");
   }
-#ifdef OPT_A1
-	pid_count = 2;
-	pid_count_mutex = sem_create("pid_count_mutex", 1);
-	if (pid_count_mutex == NULL) {
-    panic("could not create proc_count_mutex semaphore\n");
-  }
-#endif
+// #ifdef OPT_A1
+// 	pid_count = 2;
+// 	pid_count_mutex = sem_create("pid_count_mutex", 1);
+// 	if (pid_count_mutex == NULL) {
+//     panic("could not create proc_count_mutex semaphore\n");
+//   }
+// #endif
 
 #ifdef UW
   proc_count = 0;
@@ -288,7 +288,8 @@ proc_create_runprogram(const char *name)
 
 #ifdef OPT_A1
 	P(pid_count_mutex);
-	pid_count_mutex++;
+	proc->p_pid = pid_count;
+	pid_count++;
 	V(pid_count_mutex);
 #endif
 
