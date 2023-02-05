@@ -38,6 +38,7 @@
 
 #include <spinlock.h>
 #include <thread.h> /* required for struct threadarray */
+#include "opt-A1.h"
 
 struct addrspace;
 struct vnode;
@@ -59,8 +60,13 @@ struct proc {
 	/* VFS */
 	struct vnode *p_cwd;		/* current working directory */
 
-	/* PID */
+#if OPT_A1
 	int p_pid;
+	struct array *p_children;
+	struct proc *p_parent;
+	int p_exitcode;
+	int p_exitstatus;
+#endif
 
 #ifdef UW
   /* a vnode to refer to the console device */

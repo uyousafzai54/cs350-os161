@@ -9,8 +9,8 @@
 #include <thread.h>
 #include <addrspace.h>
 #include <copyinout.h>
-#include "opt-A1.h"
 #include <mips/trapframe.h>
+#include "opt-A1.h"
 #include <clock.h>
 
   /* this implementation of sys__exit does not do anything with the exit code */
@@ -37,35 +37,47 @@ void sys__exit(int exitcode) {
    */
   as = curproc_setas(NULL);
   as_destroy(as);
+  #if OPT_A1
+    while(array_num(curproc->p_children)!=0) {
+      struct proc *temp_child = array_get(curproc->p_children, 0);
+      array_remove(curproc->p_children, 0);
+      spinlock_acquire(&temp_child->p_lock);
+      if(temp_child->p_exitstatus==1) {
+        spinlock_release(&temp_child->p_lock);
+        proc_destroy(temp_child);
+      } else {
+        temp_child->p_parent = NULL;
+        spinlock_release(&temp_child->p_lock);
+      }
+    }
+  #endif
+
+
 
   /* detach this thread from its process */
   /* note: curproc cannot be used after this call */
   proc_remthread(curthread);
+  #if OPT_A1
+    spinlock_acquire(&p->p_lock);
+    if(p->p_parent!=NULL) {
+      //1 means this process has exited
+      p->p_exitstatus = 1;
+      p->p_exitcode = exitcode;
+      spinlock_release(&p->p_lock);
+    } else {
+      spinlock_release(&p->p_lock);
+      proc_destroy(p);
+    }
+  #else
+    proc_destroy(p);
+  #endif
 
   /* if this is the last user process in the system, proc_destroy()
      will wake up the kernel menu thread */
-  proc_destroy(p);
   
   thread_exit();
   /* thread_exit() does not return, so we should never get here */
   panic("return from thread_exit in sys_exit\n");
-}
-
-/* sysfork() system call */
-int
-sys_fork(int *retval, struct trapframe *tf) {
-  struct proc *forkedProc = proc_create_runprogram("child");
-  struct addrspace addr;
-  as_copy(curproc_getas(), &addrr);
-  forkedProc->p_addrspace = addr;
-  struct trapframe *trapframe_for_child; 
-  trapframe_for_child = kmalloc(sizeof(struct trapframe));
-  *trapframe_for_child = *tf;
-  const char *name = "child_thread";
-  thread_fork(name, forkedProc, (void*)&enter_forked_process, trapframe_for_child, 0);
-  (void) retval;
-  clocksleep(1);
-  return 0;
 }
 
 
@@ -75,9 +87,29 @@ sys_getpid(pid_t *retval)
 {
   /* for now, this is just a stub that always returns a PID of 1 */
   /* you need to fix this to make it work properly */
-  *retval = curproc->p_pid;
+  #if OPT_A1
+    *retval = curproc->p_pid;
+  #else
+    *retval = 1;
+  #endif
   return(0);
 }
+
+#if OPT_A1
+int sys_fork(pid_t *retval, struct trapframe *tf) {
+  struct proc *newProc = proc_create_runprogram("child");
+  newProc->p_parent = curproc;
+  array_add(curproc->p_children, newProc, NULL);
+  as_copy(curproc_getas(), &newProc->p_addrspace);
+  struct trapframe *newTF = kmalloc(sizeof(struct trapframe));
+  memcpy(newTF, tf, sizeof(struct trapframe));
+  const char *name = "child_thread";
+  thread_fork(name, newProc, (void*)enter_forked_process, newTF, 0);
+  *retval = newProc->p_pid;
+  clocksleep(1);
+  return 0;
+}
+#endif
 
 /* stub handler for waitpid() system call                */
 
@@ -102,8 +134,30 @@ sys_waitpid(pid_t pid,
   if (options != 0) {
     return(EINVAL);
   }
+  struct proc *temp_child = NULL;
+  for(unsigned int i = 0; i<array_num(curproc->p_children); i++) {
+    temp_child = array_get(curproc->p_children, i);
+    if(temp_child->p_pid == pid) {
+      array_remove(curproc->p_children, i);
+      break;
+    }
+    temp_child = NULL;
+  }
+  if(temp_child==NULL) {
+    return(ESRCH);
+  }
+
+  spinlock_acquire (& temp_child -> p_lock );
+    while (temp_child ->p_exitstatus!=1) {
+      spinlock_release (&temp_child ->p_lock);
+      clocksleep (1);
+      spinlock_acquire (&temp_child->p_lock);
+  }
+  spinlock_release (&temp_child->p_lock );
+  exitstatus = _MKWAIT_EXIT(temp_child->p_exitcode); 
+  proc_destroy(temp_child);
+
   /* for now, just pretend the exitstatus is 0 */
-  exitstatus = 0;
   result = copyout((void *)&exitstatus,status,sizeof(int));
   if (result) {
     return(result);

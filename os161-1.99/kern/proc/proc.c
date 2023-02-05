@@ -49,8 +49,10 @@
 #include <vnode.h>
 #include <vfs.h>
 #include <synch.h>
-#include <kern/fcntl.h> 
-#include "opt-A1.h" 
+#include <kern/fcntl.h>  
+#include "opt-A1.h"
+#include <limits.h>
+
 
 /*
  * The process for the kernel; this holds all the kernel-only threads.
@@ -70,12 +72,11 @@ static struct semaphore *proc_count_mutex;
 struct semaphore *no_proc_sem;   
 #endif  // UW
 
-#ifdef OPT_A1
-	static volatile unsigned int pid_count;
-	static struct semaphore *pid_count_mutex;
 
+#if OPT_A1
+static volatile unsigned int pid_count;
+static struct semaphore *pid_count_mutex;
 #endif
-
 
 
 /*
@@ -106,10 +107,20 @@ proc_create(const char *name)
 	/* VFS fields */
 	proc->p_cwd = NULL;
 
+#if OPT_A1
+
+#endif
+
 #ifdef UW
 	proc->console = NULL;
 #endif // UW
-
+#if OPT_A1
+	proc->p_children =  array_create();
+	proc->p_exitcode = 0;
+	proc->p_exitstatus = 0;
+	proc->p_parent = NULL;
+#endif
+	
 	return proc;
 }
 
@@ -174,6 +185,10 @@ proc_destroy(struct proc *proc)
 	spinlock_cleanup(&proc->p_lock);
 
 	kfree(proc->p_name);
+#if OPT_A1
+	array_destroy(proc->p_children);
+#endif
+	
 	kfree(proc);
 
 #ifdef UW
@@ -190,7 +205,11 @@ proc_destroy(struct proc *proc)
 	}
 	V(proc_count_mutex);
 #endif // UW
-	
+
+#if OPT_A1
+  	// kprintf("penis array num size: %d\n", array_num(proc->p_children));
+#endif
+
 
 }
 
@@ -204,14 +223,6 @@ proc_bootstrap(void)
   if (kproc == NULL) {
     panic("proc_create for kproc failed\n");
   }
-// #ifdef OPT_A1
-// 	pid_count = 2;
-// 	pid_count_mutex = sem_create("pid_count_mutex", 1);
-// 	if (pid_count_mutex == NULL) {
-//     panic("could not create proc_count_mutex semaphore\n");
-//   }
-// #endif
-
 #ifdef UW
   proc_count = 0;
   proc_count_mutex = sem_create("proc_count_mutex",1);
@@ -223,6 +234,13 @@ proc_bootstrap(void)
     panic("could not create no_proc_sem semaphore\n");
   }
 #endif // UW 
+#if OPT_A1
+	pid_count = PID_MIN;
+	pid_count_mutex = sem_create("pid_count_mutex",1);
+	if (pid_count_mutex == NULL) {
+    panic("could not create proc_count_mutex semaphore\n");
+  }
+#endif
 }
 
 /*
@@ -286,7 +304,7 @@ proc_create_runprogram(const char *name)
 	V(proc_count_mutex);
 #endif // UW
 
-#ifdef OPT_A1
+#if OPT_A1
 	P(pid_count_mutex);
 	proc->p_pid = pid_count;
 	pid_count++;
