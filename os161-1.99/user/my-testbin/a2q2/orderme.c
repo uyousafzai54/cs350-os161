@@ -73,7 +73,6 @@ consume(void *data)
 	}
 
 	while (!check_done()) {
-		printf("tryna enter cons\n");
 		consume_enter(resource);
 
 		assert_capacity(resource);
@@ -83,17 +82,15 @@ consume(void *data)
 		compute();
 
 		pthread_mutex_lock(&resource->mutex);
-		printf("tryna exit cons\n");
+
 		consume_exit(resource);
 
 		/* Wait for a bit. */
 		rest();
 	}
-	printf("bro we done...cons\n");
+
 	*ret = 0;
-	printf("im about to exit the thread and get some bitches\n");
 	pthread_exit(ret);
-	printf("bro we exited the thread bro\n");
 }
 
 void *
@@ -109,7 +106,6 @@ produce(void *data)
 	}
 
 	while (!check_done()) {
-		printf("tryna enter prod\n");
 		produce_enter(resource);
 
 		assert_capacity(resource);
@@ -128,17 +124,16 @@ produce(void *data)
 		    break;
 
 		pthread_mutex_lock(&resource->mutex);
-		printf("tryna exit prod\n");
+
 		produce_exit(resource);
 
 		/* Wait for a bit. */
 		rest();
 	}
-	printf("bro we done...prod\n");
+
+
 	*ret = 0;
-	printf("im about to exit the thread and get some bitches\n");
 	pthread_exit(ret);
-	printf("bro we exited the thread bro\n");
 }
 
 struct resource *
@@ -290,18 +285,15 @@ main(int argc, char **argv)
 
 	sleep(5);
 	set_done(true);
-	printf("bitches?\n");
-	// pthread_mutex_lock(&resource->mutex);
-	// resource->num_producers = num_consumers;
-	// pthread_mutex_unlock(&resource->mutex);
+	pthread_mutex_lock(&resource->mutex);
+	resource->num_producers = num_consumers;
+	pthread_mutex_unlock(&resource->mutex);
 
 	/* Mark operation as done. */
 
 	/* Free the resources. */
-	printf("ur mom is a hoeeee\n");
 	thread_teardown(threads, resource, num_producers + num_consumers);
-	printf("IM GAYYYYYYYY\n");
 	resource_teardown(resource);
-	printf("DONENNNNENENEEN\n");
+
 	return (0);
 }
