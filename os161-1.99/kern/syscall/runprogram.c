@@ -44,7 +44,16 @@
 #include <vfs.h>
 #include <syscall.h>
 #include <test.h>
+#include <copyinout.h>
+#include <types.h>
 
+int argcopy_out(userptr_t stackptr, char *cpout) {
+	//*cpout = *cpout + '\0';
+	size_t len = strlen(cpout) + 1;
+	stackptr -= len;
+	int ans = copyoutstr(cpout, (userptr_t) stackptr, len, NULL);
+	return ans;
+}
 /*
  * Load program "progname" and start running it in usermode.
  * Does not return except on error.
@@ -52,7 +61,7 @@
  * Calls vfs_open on progname and thus may destroy it.
  */
 int
-runprogram(char *progname)
+runprogram(char *progname, int argc, char **argv)
 {
 	struct addrspace *as;
 	struct vnode *v;
@@ -97,8 +106,14 @@ runprogram(char *progname)
 		return result;
 	}
 
+	userptr_t *userArgs = kmalloc((argc+1)*sizeof(userptr_t));
+	userArgs[argc] = (userptr_t) NULL;
+	for(int i=0; i<argc; i++) {
+		int ans = argcopy_out((userptr_t) &stackptr, argv[i]);
+		userArgs[i] = (userptr_t) ROUNDUP(ans, 4);
+	}
 	/* Warp to user mode. */
-	enter_new_process(0 /*argc*/, NULL /*userspace addr of argv*/,
+	enter_new_process(argc, NULL,
 			  stackptr, entrypoint);
 	
 	/* enter_new_process does not return. */
