@@ -101,19 +101,29 @@ runprogram(char *progname, int argc, char **argv)
 
 	/* Define the user stack in the address space */
 	result = as_define_stack(as, &stackptr);
+	//kprintf("stackptr: 0x%08x", stackptr);
 	if (result) {
 		/* p_addrspace will go away when curproc is destroyed */
 		return result;
 	}
 
-	userptr_t *userArgs = kmalloc((argc+1)*sizeof(userptr_t));
-	userArgs[argc] = (userptr_t) NULL;
+	//TO-DO: Free used memory
+	vaddr_t *userArgs = (vaddr_t *) kmalloc((argc+1)*sizeof(vaddr_t));
+	userArgs[argc] = (vaddr_t) NULL;
 	for(int i=0; i<argc; i++) {
-		int ans = argcopy_out((userptr_t) &stackptr, argv[i]);
-		userArgs[i] = (userptr_t) ROUNDUP(ans, 4);
+		int size = strlen(argv[i])+1;
+		stackptr -= (unsigned int) (size); 
+		stackptr = (unsigned int) (stackptr - (stackptr % 4));
+		copyout(argv[i], (userptr_t) stackptr, size);
+		userArgs[i] = (vaddr_t) stackptr;
 	}
+	int argsSize = sizeof(vaddr_t) * (argc+1);
+	stackptr -= (unsigned int) (argsSize); 
+	stackptr = (unsigned int) (stackptr - (stackptr % 4));
+	copyout(userArgs, (userptr_t) stackptr, argsSize);
 	/* Warp to user mode. */
-	enter_new_process(argc, NULL,
+
+	enter_new_process(argc, (userptr_t) stackptr,
 			  stackptr, entrypoint);
 	
 	/* enter_new_process does not return. */
