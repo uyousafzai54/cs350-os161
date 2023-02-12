@@ -114,6 +114,9 @@ syscall(struct trapframe *tf)
 		err = sys___time((userptr_t)tf->tf_a0,
 				 (userptr_t)tf->tf_a1);
 		break;
+
+		case SYS_execv:
+			err = sys_execv((char *) tf->tf_a0, (char **) tf->tf_a1);
 #ifdef UW
 	case SYS_write:
 	  err = sys_write((int)tf->tf_a0,

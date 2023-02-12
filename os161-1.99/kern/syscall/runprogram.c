@@ -111,7 +111,7 @@ runprogram(char *progname, int argc, char **argv)
 	vaddr_t *userArgs = (vaddr_t *) kmalloc((argc+1)*sizeof(vaddr_t));
 	userArgs[argc] = (vaddr_t) NULL;
 	for(int i=0; i<argc; i++) {
-		int size = strlen(argv[i])+1;
+		size_t size = strlen(argv[i])+1;
 		stackptr -= (unsigned int) (size); 
 		stackptr = (unsigned int) (stackptr - (stackptr % 4));
 		copyout(argv[i], (userptr_t) stackptr, size);
