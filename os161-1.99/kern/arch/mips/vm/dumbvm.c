@@ -52,10 +52,25 @@
  */
 static struct spinlock stealmem_lock = SPINLOCK_INITIALIZER;
 
+bool physmap_ready = false;
+vaddr_t physmap;
+
 void
 vm_bootstrap(void)
 {
-	/* Do nothing. */
+	paddr_t *lo, *hi; 
+	ram_getsize(lo, hi);
+	begin = KVADDR_TO_PADDR(*lo);
+
+	size_t numPages = (*hi)/sizeof(PAGE_SIZE);
+
+	for(size_t i=0; i<*lo; i = i+PAGE_SIZE) {
+		physmap[i] = -1;
+	}
+	for(size_t i=(*lo); i<=*hi; i = i+PAGE_SIZE) {
+		physmap[i] = 0;
+	}
+	physmap_ready = true;
 }
 
 static
@@ -66,7 +81,12 @@ getppages(unsigned long npages)
 
 	spinlock_acquire(&stealmem_lock);
 
-	addr = ram_stealmem(npages);
+	if(!physmap_ready) {
+		addr = ram_stealmem(npages);
+	} else {
+		
+	}
+	
 	
 	spinlock_release(&stealmem_lock);
 	return addr;
@@ -84,12 +104,19 @@ alloc_kpages(int npages)
 	return PADDR_TO_KVADDR(pa);
 }
 
+void putppages(paddr_t paddr) {
+	if(!physmap_ready) {
+		//do nothing
+	} else {
+		//do something
+	}
+}
+
 void 
 free_kpages(vaddr_t addr)
 {
 	/* nothing - leak the memory. */
-
-	(void)addr;
+	putppages(KVADDR_TO_PADDR(addr));
 }
 
 void
@@ -249,6 +276,9 @@ as_create(void)
 void
 as_destroy(struct addrspace *as)
 {
+	putppages(as->as_vbase1);
+	putppages(as->as_vbase2);
+	putppages(as->as_stackpbase); //not sure about this
 	kfree(as);
 }
 
