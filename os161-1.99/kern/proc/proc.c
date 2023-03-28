@@ -190,7 +190,6 @@ proc_destroy(struct proc *proc)
 #endif
 	
 	kfree(proc);
-
 #ifdef UW
 	/* decrement the process count */
         /* note: kproc is not included in the process count, but proc_destroy

@@ -41,6 +41,13 @@
 
 
 //to-do: free memory
+userptr_t argcopy_out_2(unsigned int stackptr, char *cpout, size_t size) {
+	stackptr -= (unsigned int) size;
+	stackptr = (unsigned int) (stackptr - (stackptr % 4)); 
+	copyoutstr(cpout, (userptr_t) stackptr, size, NULL);
+	return (userptr_t) stackptr;
+}
+
 int sys_execv(char *progname, char **argv) {
     struct addrspace *as;
     struct vnode *v;
@@ -61,6 +68,7 @@ int sys_execv(char *progname, char **argv) {
       return result;
     }
     
+    
     size_t siz = 0;
     while(argv[siz]!=NULL) {
       siz += 1;
@@ -75,15 +83,17 @@ int sys_execv(char *progname, char **argv) {
     }
     kern_args[siz] = NULL;
 
+    as_destroy(curproc_getas());
+
     /* Create a new address space. */
     as = as_create();
-    if (as == NULL) {
+    if (as ==NULL) {
       vfs_close(v);
       return ENOMEM;
     }
 
+    
     /* Switch to it and activate it. */
-    as_destroy(curproc_getas());
     curproc_setas(as);
     as_activate();
     
@@ -109,22 +119,21 @@ int sys_execv(char *progname, char **argv) {
     //TO-DO: Free used memory
     vaddr_t *userArgs = (vaddr_t *) kmalloc((siz+1)*sizeof(vaddr_t));
     userArgs[siz] = (vaddr_t) NULL;
+    userptr_t newStackPtr = (userptr_t) stackptr;
     for(size_t i=0; i<siz; i++) {
       size_t size = strlen(kern_args[i])+1;
-      stackptr -= (unsigned int) (size); 
-      stackptr = (unsigned int) (stackptr - (stackptr % 4));
-      copyout(kern_args[i], (userptr_t) stackptr, size);
-      userArgs[i] = (vaddr_t) stackptr;
-    }
+      newStackPtr = argcopy_out_2((unsigned int) newStackPtr, (char *) kern_args[i], (size_t) size);
+      userArgs[i] = (vaddr_t) newStackPtr;
+	  }
     int argsSize = sizeof(vaddr_t) * (siz+1);
-    stackptr -= (unsigned int) (argsSize); 
-    stackptr = (unsigned int) (stackptr - (stackptr % 4));
-    copyout(userArgs, (userptr_t) stackptr, argsSize);
+    newStackPtr -= (unsigned int) (argsSize); 
+    newStackPtr = (userptr_t) (newStackPtr - ((unsigned int) newStackPtr % 4));
+    copyout(userArgs, (userptr_t) newStackPtr, argsSize);
     /* Warp to user mode. */
 
 
-    enter_new_process(siz, (userptr_t) stackptr,
-          stackptr, entrypoint);
+    enter_new_process(siz, newStackPtr,
+          (vaddr_t) newStackPtr, entrypoint);
 	  return EINVAL;
 }
 
@@ -152,40 +161,39 @@ void sys__exit(int exitcode) {
    */
   as = curproc_setas(NULL);
   as_destroy(as);
-  #if OPT_A1
-    while(array_num(curproc->p_children)!=0) {
-      struct proc *temp_child = array_get(curproc->p_children, 0);
-      array_remove(curproc->p_children, 0);
-      spinlock_acquire(&temp_child->p_lock);
-      if(temp_child->p_exitstatus==1) {
-        spinlock_release(&temp_child->p_lock);
-        proc_destroy(temp_child);
-      } else {
-        temp_child->p_parent = NULL;
-        spinlock_release(&temp_child->p_lock);
-      }
+  while(array_num(curproc->p_children)!=0) {
+    struct proc *temp_child = array_get(curproc->p_children, 0);
+    array_remove(curproc->p_children, 0);
+    spinlock_acquire(&temp_child->p_lock);
+    if(temp_child->p_exitstatus==1) {
+      spinlock_release(&temp_child->p_lock);
+      proc_destroy(temp_child);
+    } else {
+      temp_child->p_parent = NULL;
+      spinlock_release(&temp_child->p_lock);
     }
-  #endif
+  }
 
 
 
   /* detach this thread from its process */
   /* note: curproc cannot be used after this call */
   proc_remthread(curthread);
-  #if OPT_A1
     spinlock_acquire(&p->p_lock);
     if(p->p_parent!=NULL) {
       //1 means this process has exited
+      //parent is not dead
+      //mark yourself as done
       p->p_exitstatus = 1;
       p->p_exitcode = exitcode;
       spinlock_release(&p->p_lock);
     } else {
+      //parent is dead
+      //kill yourself (child)
       spinlock_release(&p->p_lock);
       proc_destroy(p);
     }
-  #else
-    proc_destroy(p);
-  #endif
+    //proc_destroy(p);
 
   /* if this is the last user process in the system, proc_destroy()
      will wake up the kernel menu thread */
@@ -210,7 +218,6 @@ sys_getpid(pid_t *retval)
   return(0);
 }
 
-#if OPT_A1
 int sys_fork(pid_t *retval, struct trapframe *tf) {
   struct proc *newProc = proc_create_runprogram("child");
   newProc->p_parent = curproc;
@@ -224,7 +231,6 @@ int sys_fork(pid_t *retval, struct trapframe *tf) {
   clocksleep(1);
   return 0;
 }
-#endif
 
 /* stub handler for waitpid() system call                */
 
@@ -268,7 +274,7 @@ sys_waitpid(pid_t pid,
       clocksleep (1);
       spinlock_acquire (&temp_child->p_lock);
   }
-  spinlock_release (&temp_child->p_lock );
+  spinlock_release (&temp_child->p_lock);
   exitstatus = _MKWAIT_EXIT(temp_child->p_exitcode); 
   proc_destroy(temp_child);
 

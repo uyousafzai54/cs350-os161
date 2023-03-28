@@ -200,13 +200,14 @@ lock_acquire(struct lock *lock)
 void
 lock_release(struct lock *lock)
 {
+        KASSERT(lock != NULL);
         KASSERT(curthread==lock->lk_owner);
         spinlock_acquire(&lock->lk_spnlk);
         while(lock->lk_held) {
                 lock->lk_owner = NULL;
                 lock->lk_held = false;
-                wchan_wakeall(lock->lk_wchan);
         }
+        wchan_wakeall(lock->lk_wchan);
         spinlock_release(&lock->lk_spnlk);
 }
 

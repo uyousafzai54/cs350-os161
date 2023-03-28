@@ -47,12 +47,11 @@
 #include <copyinout.h>
 #include <types.h>
 
-int argcopy_out(userptr_t stackptr, char *cpout) {
-	//*cpout = *cpout + '\0';
-	size_t len = strlen(cpout) + 1;
-	stackptr -= len;
-	int ans = copyoutstr(cpout, (userptr_t) stackptr, len, NULL);
-	return ans;
+userptr_t argcopy_out(unsigned int stackptr, char *cpout, size_t size) {
+	stackptr -= (unsigned int) size;
+	stackptr = (unsigned int) (stackptr - (stackptr % 4)); 
+	copyoutstr(cpout, (userptr_t) stackptr, size, NULL);
+	return (userptr_t) stackptr;
 }
 /*
  * Load program "progname" and start running it in usermode.
@@ -110,21 +109,21 @@ runprogram(char *progname, int argc, char **argv)
 	//TO-DO: Free used memory
 	vaddr_t *userArgs = (vaddr_t *) kmalloc((argc+1)*sizeof(vaddr_t));
 	userArgs[argc] = (vaddr_t) NULL;
+	userptr_t newStackPtr = (userptr_t) stackptr;
 	for(int i=0; i<argc; i++) {
 		size_t size = strlen(argv[i])+1;
-		stackptr -= (unsigned int) (size); 
-		stackptr = (unsigned int) (stackptr - (stackptr % 4));
-		copyout(argv[i], (userptr_t) stackptr, size);
-		userArgs[i] = (vaddr_t) stackptr;
+		newStackPtr = argcopy_out((unsigned int) newStackPtr, (char *) argv[i], (size_t) size);
+		userArgs[i] = (vaddr_t) newStackPtr;
 	}
+
 	int argsSize = sizeof(vaddr_t) * (argc+1);
-	stackptr -= (unsigned int) (argsSize); 
-	stackptr = (unsigned int) (stackptr - (stackptr % 4));
-	copyout(userArgs, (userptr_t) stackptr, argsSize);
+	newStackPtr -= (unsigned int) (argsSize); 
+	newStackPtr = (newStackPtr - ((unsigned int) newStackPtr % 4));
+	copyout(userArgs, newStackPtr, argsSize);
 	/* Warp to user mode. */
 
-	enter_new_process(argc, (userptr_t) stackptr,
-			  stackptr, entrypoint);
+	enter_new_process(argc, newStackPtr,
+			  (vaddr_t) newStackPtr, entrypoint);
 	
 	/* enter_new_process does not return. */
 	panic("enter_new_process returned\n");

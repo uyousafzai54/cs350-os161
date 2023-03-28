@@ -83,6 +83,7 @@ static
 void
 thread_checkstack_init(struct thread *thread)
 {
+	//kprintf("addr thread stack: 0x%x\n\n", thread->t_stack);
 	((uint32_t *)thread->t_stack)[0] = THREAD_STACK_MAGIC;
 	((uint32_t *)thread->t_stack)[1] = THREAD_STACK_MAGIC;
 	((uint32_t *)thread->t_stack)[2] = THREAD_STACK_MAGIC;

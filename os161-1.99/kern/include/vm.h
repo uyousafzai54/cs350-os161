@@ -55,6 +55,9 @@ int vm_fault(int faulttype, vaddr_t faultaddress);
 vaddr_t alloc_kpages(int npages);
 void free_kpages(vaddr_t addr);
 
+void putppages(paddr_t addr);
+void memory_leak(unsigned int, unsigned int);
+
 /* TLB shootdown handling called from interprocessor_interrupt */
 void vm_tlbshootdown_all(void);
 void vm_tlbshootdown(const struct tlbshootdown *);

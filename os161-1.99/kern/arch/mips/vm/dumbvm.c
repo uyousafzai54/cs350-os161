@@ -39,6 +39,7 @@
 #include <vm.h>
 #include <syscall.h>
 
+
 /*
  * Dumb MIPS-only "VM system" that is intended to only be just barely
  * enough to struggle off the ground.
@@ -46,28 +47,29 @@
 
 /* under dumbvm, always have 48k of user stack */
 #define DUMBVM_STACKPAGES    12
+#define ALLOC_POISSON -1
+#define THREAD_STACK_MAGIC 0xbaadf00d
 
 /*
  * Wrap rma_stealmem in a spinlock.
  */
 static struct spinlock stealmem_lock = SPINLOCK_INITIALIZER;
-
+paddr_t lo, hi;
+unsigned int physmap_size;
+unsigned int *physmap;
+static unsigned int freePages;
 bool physmap_ready = false;
-vaddr_t physmap;
 
 void
 vm_bootstrap(void)
 {
-	paddr_t *lo, *hi; 
-	ram_getsize(lo, hi);
-	begin = KVADDR_TO_PADDR(*lo);
-
-	size_t numPages = (*hi)/sizeof(PAGE_SIZE);
-
-	for(size_t i=0; i<*lo; i = i+PAGE_SIZE) {
-		physmap[i] = -1;
-	}
-	for(size_t i=(*lo); i<=*hi; i = i+PAGE_SIZE) {
+	ram_getsize(&lo, &hi);
+	physmap_size =  (hi-lo)/PAGE_SIZE;
+	physmap_size -= physmap_size*sizeof(unsigned int*)/PAGE_SIZE;
+	freePages = physmap_size;
+	lo += physmap_size*sizeof(unsigned int*)/PAGE_SIZE;
+	physmap = ((unsigned int *) PADDR_TO_KVADDR(lo));
+	for(unsigned int i=0; i<physmap_size; i++) {
 		physmap[i] = 0;
 	}
 	physmap_ready = true;
@@ -77,45 +79,93 @@ static
 paddr_t
 getppages(unsigned long npages)
 {
+	//kprintf("alloc req: %lu\n", npages);
 	paddr_t addr;
-
-	spinlock_acquire(&stealmem_lock);
-
-	if(!physmap_ready) {
-		addr = ram_stealmem(npages);
-	} else {
-		
+	unsigned int j = 0;
+	for(unsigned int i=j; i<physmap_size; i++) {
+		for(j=i; j<physmap_size && physmap[j]==0; j++) {
+			//continue
+			if(j-i+1==npages) {
+				physmap[i] = npages;
+				int cnt = 2;
+				for(unsigned int k=i+1; k<=j; k++) {
+					physmap[k] = cnt;
+					cnt++;
+				}
+				addr = ((vaddr_t) lo) + i*PAGE_SIZE;
+				freePages-=npages;
+				//kprintf("i: %u, addr: 0x%x npages[i]: %u\n\n", i, addr, ((unsigned int *)PADDR_TO_KVADDR(lo))[i]);
+				return addr;
+			}
+		}
 	}
-	
-	
-	spinlock_release(&stealmem_lock);
-	return addr;
+	return 0;
 }
 
 /* Allocate/free some kernel-space virtual pages */
 vaddr_t 
 alloc_kpages(int npages)
-{
+{	
 	paddr_t pa;
-	pa = getppages(npages);
-	if (pa==0) {
-		return 0;
+	if(physmap_ready) {
+		spinlock_acquire(&stealmem_lock);
+		pa = getppages(npages);
+		if (pa==0) {
+			return 0;
+		}
+		spinlock_release(&stealmem_lock);
+	} else {
+		spinlock_acquire(&stealmem_lock);
+		pa = ram_stealmem(npages);
+		spinlock_release(&stealmem_lock);
 	}
 	return PADDR_TO_KVADDR(pa);
 }
 
-void putppages(paddr_t paddr) {
-	if(!physmap_ready) {
-		//do nothing
-	} else {
-		//do something
+void memory_leak(unsigned int a, unsigned int b) {
+	for(unsigned int i = a; i<=b && i<physmap_size; i++) {
+		//kprintf("i: %u, val[i]: %u\n", i, physmap[i]);
+		// if(physmap[i]==3131961357) {
+		// 	physmap[i] = 0;
+		// }
+	}
+}
+
+void putppages(paddr_t addr) { 
+	if(physmap_ready==false) {
+		return;
+	}
+	unsigned int cnt = 1;
+	unsigned int i = (addr-lo)/PAGE_SIZE;
+	unsigned int last = 1;
+
+	unsigned int npages = physmap[i];
+	physmap[i] = 0;
+	i+=1;
+	for(unsigned int j=i; j<physmap_size; j++) {
+		if(physmap[j]==last+1) {
+			last = physmap[j];
+			physmap[j] = 0;
+			cnt++;
+		} else {
+			break;
+		}
+	}
+	//make sure man don't leak
+	freePages+=cnt;
+	// kprintf("npages: %u, cnt: %u\n", npages, cnt);
+	// kprintf("free pages sucessful for addr: 0x%x, freePages: %u\n\n", addr, freePages);
+
+	//this dumb value that's put at the bottom of the stack interferes with my size value placed at addr 0x3b000
+	//harvard pls fix
+	if(npages!=THREAD_STACK_MAGIC) {
+		KASSERT(cnt==npages);
 	}
 }
 
 void 
 free_kpages(vaddr_t addr)
 {
-	/* nothing - leak the memory. */
 	putppages(KVADDR_TO_PADDR(addr));
 }
 
@@ -223,10 +273,9 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 		}
 		ehi = faultaddress;
 		if(faultaddress >= vbase1 && faultaddress < vtop1) {
+			elo = paddr | TLBLO_DIRTY | TLBLO_VALID;
 			if(as->as_loaded==1) {
-				elo = paddr | TLBLO_VALID;
-			} else if(as->as_loaded==0) {
-				elo = paddr | TLBLO_DIRTY | TLBLO_VALID;
+				elo&=~TLBLO_DIRTY;
 			}
 		} else {
 			elo = paddr | TLBLO_DIRTY | TLBLO_VALID;
@@ -238,11 +287,10 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 		return 0;
 	}
 	ehi = faultaddress;
+	elo = paddr | TLBLO_DIRTY | TLBLO_VALID;
 	if(faultaddress >= vbase1 && faultaddress < vtop1) {
 		if(as->as_loaded==1) {
-			elo = paddr | TLBLO_VALID;
-		} else if(as->as_loaded==0) {
-			elo = paddr | TLBLO_DIRTY | TLBLO_VALID;
+			elo&=~TLBLO_DIRTY;
 		}
 	} else {
 		elo = paddr | TLBLO_DIRTY | TLBLO_VALID;
@@ -276,10 +324,14 @@ as_create(void)
 void
 as_destroy(struct addrspace *as)
 {
-	putppages(as->as_vbase1);
-	putppages(as->as_vbase2);
-	putppages(as->as_stackpbase); //not sure about this
+	putppages(as->as_pbase1);
+	putppages(as->as_pbase2);
+	putppages(as->as_stackpbase);
 	kfree(as);
+	//don't make man leak
+	//KASSERT(freePages==physmap_size-1);
+	//kprintf("addy destroyed\n");
+	
 }
 
 void
