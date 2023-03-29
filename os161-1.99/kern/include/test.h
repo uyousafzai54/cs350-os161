@@ -84,7 +84,7 @@ int nettest(int, char **);
 /* Routine for running a user-level program. */
 int runprogram(char *progname, int argc, char **argv);
 
-int argcopy_out(userptr_t stackptr, char *cpout);
+userptr_t argcopy_out(unsigned int stackptr, char *cpout, size_t);
 
 /* Kernel menu system. */
 void menu(char *argstr);
